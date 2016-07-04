@@ -10,18 +10,21 @@ import XCTest
 import Foundation
 import GenericJsonParser
 
+//#if os(Linux)
+//  extension PerformanceTests: XCTestCaseProvider {
+//    var allTests : [(String, () throws -> Void)] {
+//      return [
+//        ("testParseLargeJson", testParseLargeJson),
+//        ("testParseLargeJson_Foundation", testParseLargeJson_Foundation),
+//        ("testParseLargeMinJson", testParseLargeMinJson),
+//        ("testParseLargeMinJson_Foundation", testParseLargeMinJson_Foundation),
+//      ]
+//    }
+//  }
+//#endif
+
 #if os(Linux)
-  extension PerformanceTests: XCTestCaseProvider {
-    var allTests : [(String, () throws -> Void)] {
-      return [
-        ("testParseLargeJson", testParseLargeJson),
-        ("testParseLargeJson_Foundation", testParseLargeJson_Foundation),
-        ("testParseLargeMinJson", testParseLargeMinJson),
-        ("testParseLargeMinJson_Foundation", testParseLargeMinJson_Foundation),
-      ]
-    }
-  }
-#endif
+#else
 
 class PerformanceTests: XCTestCase {
 
@@ -55,7 +58,7 @@ class PerformanceTests: XCTestCase {
   func testParseLargeMinJson_Foundation() {
 
     let data = self.loadFixtureData("large_min")
-    
+
     measure {
       _ = try! JSONSerialization.jsonObject(with: data, options: [])
     }
@@ -87,4 +90,5 @@ extension PerformanceTests {
   }
 }
 
+#endif
 
