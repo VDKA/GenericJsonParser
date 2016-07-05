@@ -6,8 +6,7 @@ class ParsingTests: XCTestCase {
 
   func testPrepareForReading_FailOnEmpty() {
 
-    // TODO (vdka): crash
-//    expect("", toThrow: .endOfStream)
+    expect("", toThrow: .emptyStream)
   }
 
   func testExtraTokensThrow() {
@@ -70,7 +69,7 @@ class ParsingTests: XCTestCase {
 
   func testArray_NullsAndBooleans_Bad_MissingEnd() {
 
-//    expect("[\n  null ,true, \nfalse\r\n\n  ", toThrow: .invalidSyntax)
+    expect("[\n  null ,true, \nfalse\r\n\n  ", toThrow: .expectedComma)
   }
 
   func testArray_NullsAndBooleans_Bad_MissingComma() {
@@ -103,6 +102,16 @@ class ParsingTests: XCTestCase {
     expect("24", toParseTo: .number(.integer(24)))
   }
 
+  func testNumber_IntMin() {
+
+    expect(Int.min.description, toParseTo: .number(.integer(Int64.min)))
+  }
+
+  func testNumber_IntMax() {
+
+    expect(Int.max.description, toParseTo: .number(.integer(Int64.max)))
+  }
+
   func testNumber_Int_Negative() {
 
     expect("-32", toParseTo: .number(.integer(-32)))
@@ -123,8 +132,13 @@ class ParsingTests: XCTestCase {
     expect("-0.98", toParseTo: .number(.double(-0.98)))
   }
 
+  func testNumber_Dbl_ThrowsOnMinus() {
+
+    expect("-", toThrow: .invalidNumber)
+  }
+
   func testNumber_Dbl_Incomplete() {
-    // FIXME (vdka): Works if there is no trailing space. It shouldn't
+
     expect("24.", toThrow: .invalidNumber)
   }
 
@@ -150,25 +164,22 @@ class ParsingTests: XCTestCase {
 
   func testNumber_Double_Exp_Normal() {
 
-    // FIXME (vdka): Parses if it has trailing whitespace. Fails if it doesn't.
     expect("-24.3245e2", toParseTo: .number(.double(-2432.45)))
   }
 
   func testNumber_Double_Exp_Positive() {
 
-    // FIXME (vdka): Parses if it has trailing whitespace. Fails if it doesn't.
     expect("-24.3245e+2", toParseTo: .number(.double(-2432.45)))
   }
 
+  // TODO (vdka): floating point accuracy
   func testNumber_Double_Exp_Negative() {
 
-    // TODO: Floats suck so much.
-//    expect("-24.3245e-2, ", toParseTo: .number(.double(-0.243245)))
+    expect("-24.3245e-2", toParseTo: .number(.double(-0.243245)))
   }
 
   func testNumber_Double_Exp_NoFrac() {
 
-    // FIXME (vdka): Parses if it has trailing whitespace. Fails if it doesn't.
     expect("24E2", toParseTo: .number(.double(2400)))
   }
 

@@ -54,6 +54,6 @@ extension JSON {
 
   static func parse(_ data: inout [UInt8], options: Option = []) throws -> JSON  {
 
-    return try GenericJsonParser.parse(data: &data, onObject: onObject, onArray: onArray, onNull: onNull, onBool: onBool, onString: onString, onNumber: onNumber)
+    return try GenericJsonParser.parse(data: &data, options: options, onObject: onObject, onArray: onArray, onNull: onNull, onBool: onBool, onString: onString, onNumber: onNumber)
   }
 }

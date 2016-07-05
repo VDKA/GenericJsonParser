@@ -18,7 +18,7 @@ extension XCTestCase {
 
     do {
 
-      let val = try JSON.parse(&data)
+      let val = try JSON.parse(&data, options: .allowFragments)
 
       XCTFail("expected to throw \(expectedError) but got \(val)", file: file, line: line)
     } catch let error as JSON.Error {
@@ -37,7 +37,7 @@ extension XCTestCase {
     var data = Array(input.utf8)
 
     do {
-      let output = try JSON.parse(&data)
+      let output = try JSON.parse(&data, options: .allowFragments)
 
       XCTAssertEqual(output, expected, file: file, line: line)
     } catch {

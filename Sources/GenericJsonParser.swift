@@ -7,11 +7,13 @@ public struct GenericJsonParser {
     public let rawValue: UInt8
 
     public static let skipNull = Option(rawValue: 0b0001)
+    public static let allowFragments = Option(rawValue: 0b0010)
   }
 
   public enum Error: ErrorProtocol {
 
     case endOfStream
+    case emptyStream
     case trailingComma
     case expectedComma
     case expectedColon
@@ -21,6 +23,7 @@ public struct GenericJsonParser {
     case numberOverflow
     case invalidLiteral
     case invalidUnicode
+    case fragmentedJson
   }
 
   public enum Number {
@@ -71,12 +74,18 @@ extension GenericJsonParser {
     onNumber: (Number) -> T
   ) throws -> T  {
 
+    guard data.count > 0 else { throw Error.emptyStream }
+
     return try data.withUnsafeMutableBufferPointer {
 
       var parser = Core(buffer: $0, options: options, onObject, onArray, onNull, onBool, onString, onNumber)
       parser.skipWhitespace()
-      
-      let rootValue = try parser.parseValue()
+
+      let (rootValue, wasTopLevel) = try parser.parseValue()
+
+      if !wasTopLevel && !options.contains(.allowFragments) {
+        throw Error.fragmentedJson
+      }
 
       parser.skipWhitespace()
 
@@ -143,7 +152,7 @@ extension Core {
    - precondition: `pointer` is at the beginning of a literal
    - postcondition: `pointer` will be in the next non-`whiteSpace` position
    */
-  mutating func parseValue() throws -> T {
+  mutating func parseValue() throws -> (T, wasTopLevel: Bool) {
 
     assert(!pointer.pointee.isWhitespace && pointer.pointee != 0)
 
@@ -152,40 +161,40 @@ extension Core {
     case objectOpen:
 
       let object = try parseObject()
-      return onObject(object)
+      return (onObject(object), wasTopLevel: true)
 
     case arrayOpen:
 
       let a = try parseArray()
-      return onArray(a)
+      return (onArray(a), wasTopLevel: true)
 
     case quote:
 
       let string = try parseString()
-      return onString(string)
+      return (onString(string), wasTopLevel: false)
 
     case minus, numbers:
 
       let number = try parseNumber()
-      return onNumber(number)
+      return (onNumber(number), wasTopLevel: false)
 
     case f:
 
       unsafePop()
       try assertFollowedBy(alse)
-      return onBool(false)
+      return (onBool(false), wasTopLevel: false)
 
     case t:
 
       unsafePop()
       try assertFollowedBy(rue)
-      return onBool(true)
+      return (onBool(true), wasTopLevel: false)
 
     case n:
 
       unsafePop()
       try assertFollowedBy(ull)
-      return onNull()
+      return (onNull(), wasTopLevel: false)
 
     default:
       throw Error.invalidSyntax
@@ -225,13 +234,13 @@ extension Core {
         let key = try parseString()
         try skipColon()
         let value = try parseValue()
-        
+
         switch skipNull {
         case true where wasNull:
           wasNull = false
 
         default:
-          tempDict.append( (key, value) )
+          tempDict.append( (key, value.0) )
         }
 
       case comma:
@@ -299,7 +308,7 @@ extension Core {
           wasNull = false
 
         default:
-          tempArray.append(value)
+          tempArray.append(value.0)
         }
       }
     } while true
@@ -317,6 +326,8 @@ extension Core {
       unsafePop()
       return true
     }()
+
+    guard numbers ~= peek() else { throw Error.invalidNumber }
 
     var significand: UInt64 = 0
     var mantisa: UInt64 = 0
@@ -374,7 +385,7 @@ extension Core {
 
           unsafePop()
         }
-        
+
         guard numbers ~= peek() else { throw Error.invalidNumber }
 
       default:
@@ -436,95 +447,6 @@ extension Core {
       }
     }
   }
-
-//  func parseNumber() throws -> Number {
-//    repeat {
-//      switch peek() {
-//      case numbers where !seenExponent && !seenDecimal:
-//
-//        (significand, didOverflow) = UInt64.multiplyWithOverflow(significand, 10)
-//        guard !didOverflow else { throw Error.numberOverflow }
-//
-//        (significand, didOverflow) = UInt64.addWithOverflow(significand, UInt64(unsafePop() - zero))
-//        guard !didOverflow else { throw Error.numberOverflow }
-//
-//      case numbers where seenDecimal && !seenExponent: // decimals must come before exponents
-//
-//        divisor *= 10
-//
-//        (mantisa, didOverflow) = UInt64.multiplyWithOverflow(mantisa, 10)
-//        guard !didOverflow else { throw Error.numberOverflow }
-//
-//        (mantisa, didOverflow) = UInt64.addWithOverflow(mantisa, UInt64(unsafePop() - zero))
-//        guard !didOverflow else { throw Error.numberOverflow }
-//
-//      case numbers where seenExponent:
-//
-//        (exponent, didOverflow) = UInt64.multiplyWithOverflow(exponent, 10)
-//        guard !didOverflow else { throw Error.numberOverflow }
-//
-//        (exponent, didOverflow) = UInt64.addWithOverflow(exponent, UInt64(unsafePop() - zero))
-//        guard !didOverflow else { throw Error.numberOverflow }
-//
-//      case decimal where !seenExponent && !seenDecimal:
-//
-//        unsafePop() // remove the decimal
-//        seenDecimal = true
-//
-//      case E where !seenExponent,
-//           e where !seenExponent:
-//
-//        unsafePop() // remove the 'e' || 'E'
-//        seenExponent = true
-//
-//        if peek() == minus {
-//          negativeExponent = true
-//          unsafePop() // remove the '-'
-//        } else if peek() == plus {
-//          unsafePop()
-//        }
-//
-//      // is end of number
-//
-//      // TODO (vdka): ends are only valid when numbers follow . | e | E otherwise throw .invalidNumber
-//      case arrayClose, objectClose, comma, space, tab, cr, newline, 0:
-//
-//        switch (seenDecimal, seenExponent) {
-//        case (false, false):
-//
-//          if negative && significand == UInt64(Int64.max) + 1 {
-//            return .integer(Int64.min)
-//          } else if significand > UInt64(Int64.max) {
-//            throw Error.numberOverflow
-//          }
-//
-//          return .integer(negative ? -Int64(significand) : Int64(significand))
-//
-//        case (true, false):
-//
-//          let n = Double(significand) + Double(mantisa) / (divisor / 10)
-//          return .double(negative ? -n : n)
-//
-//        case (false, true):
-//
-//          let n = Double(significand)
-//            .power(10, exponent: exponent, isNegative: negativeExponent)
-//
-//          return .double(negative ? -n : n)
-//
-//        case (true, true):
-//
-//          let n = (Double(significand) + Double(mantisa) / (divisor / 10))
-//            .power(10, exponent: exponent, isNegative: negativeExponent)
-//
-//          return .double(negative ? -n : n)
-//
-//        }
-//
-//      default: throw Error.invalidNumber
-//      }
-//    } while true
-//  }
 
   // TODO (vdka): refactor
   // TODO (vdka): option to _repair_ Unicode
