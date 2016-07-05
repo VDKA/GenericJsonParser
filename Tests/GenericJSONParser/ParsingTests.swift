@@ -4,14 +4,14 @@ import XCTest
 
 class ParsingTests: XCTestCase {
 
-  func testPrepareForReading_FailOnEmpty() {
+  func test_FailOnEmpty() {
 
-    expect("", toThrow: .emptyStream)
+    expect("", toThrowWithReason: .emptyStream)
   }
 
   func testExtraTokensThrow() {
 
-    expect("{'hello':'world'} blah", toThrow: .invalidSyntax)
+    expect("{'hello':'world'} blah", toThrowWithReason: .invalidSyntax)
   }
 
   func testNullParses() {
@@ -21,7 +21,7 @@ class ParsingTests: XCTestCase {
 
   func testNullThrowsOnMismatch() {
 
-    expect("nall", toThrow: .invalidLiteral)
+    expect("nall", toThrowWithReason: .invalidLiteral)
   }
 
   func testTrueParses() {
@@ -31,7 +31,7 @@ class ParsingTests: XCTestCase {
 
   func testTrueThrowsOnMismatch() {
 
-    expect("tRue", toThrow: .invalidLiteral)
+    expect("tRue", toThrowWithReason: .invalidLiteral)
   }
 
   func testFalseParses() {
@@ -41,7 +41,7 @@ class ParsingTests: XCTestCase {
 
   func testBoolean_False_Mismatch() {
 
-    expect("fals ", toThrow: .invalidLiteral)
+    expect("fals ", toThrowWithReason: .invalidLiteral)
   }
 
   func testArray_NullsBoolsNums_Normal_Minimal_RootParser() {
@@ -69,22 +69,22 @@ class ParsingTests: XCTestCase {
 
   func testArray_NullsAndBooleans_Bad_MissingEnd() {
 
-    expect("[\n  null ,true, \nfalse\r\n\n  ", toThrow: .expectedComma)
+    expect("[\n  null ,true, \nfalse\r\n\n  ", toThrowWithReason: .expectedComma)
   }
 
   func testArray_NullsAndBooleans_Bad_MissingComma() {
 
-    expect("[\n  null true, \nfalse\r\n]\n  ", toThrow: .expectedComma)
+    expect("[\n  null true, \nfalse\r\n]\n  ", toThrowWithReason: .expectedComma)
   }
 
   func testArray_NullsAndBooleans_Bad_ExtraComma() {
 
-    expect("[\n  null , , true, \nfalse\r\n]\n  ", toThrow: .invalidSyntax)
+    expect("[\n  null , , true, \nfalse\r\n]\n  ", toThrowWithReason: .invalidSyntax)
   }
 
   func testArray_NullsAndBooleans_Bad_TrailingComma() {
 
-    expect("[\n  null ,true, \nfalse\r\n, ]\n  ", toThrow: .trailingComma)
+    expect("[\n  null ,true, \nfalse\r\n, ]\n  ", toThrowWithReason: .trailingComma)
   }
 
   func testNumber_Int_Zero() {
@@ -134,12 +134,12 @@ class ParsingTests: XCTestCase {
 
   func testNumber_Dbl_ThrowsOnMinus() {
 
-    expect("-", toThrow: .invalidNumber)
+    expect("-", toThrowWithReason: .invalidNumber)
   }
 
   func testNumber_Dbl_Incomplete() {
 
-    expect("24.", toThrow: .invalidNumber)
+    expect("24.", toThrowWithReason: .invalidNumber)
   }
 
   func testNumber_Dbl_Negative() {
@@ -149,17 +149,17 @@ class ParsingTests: XCTestCase {
 
   func testNumber_Dbl_Negative_WrongChar() {
 
-    expect("-24.3a4", toThrow: .invalidNumber)
+    expect("-24.3a4", toThrowWithReason: .invalidNumber)
   }
 
   func testNumber_Dbl_Negative_TwoDecimalPoints() {
 
-    expect("-24.3.4", toThrow: .invalidNumber)
+    expect("-24.3.4", toThrowWithReason: .invalidNumber)
   }
 
   func testNumber_Dbl_Negative_TwoMinuses() {
 
-    expect("--24.34", toThrow: .invalidNumber)
+    expect("--24.34", toThrowWithReason: .invalidNumber)
   }
 
   func testNumber_Double_Exp_Normal() {
@@ -185,7 +185,7 @@ class ParsingTests: XCTestCase {
 
   func testNumber_Double_Exp_TwoEs() {
 
-    expect("-24.3245eE2", toThrow: .invalidNumber)
+    expect("-24.3245eE2", toThrowWithReason: .invalidNumber)
   }
 
   func testEscape_Unicode_Normal() {
@@ -195,12 +195,12 @@ class ParsingTests: XCTestCase {
 
   func testEscape_Unicode_InvalidUnicode_MissingDigit() {
 
-    expect("'\\u048'", toThrow: .invalidEscape)
+    expect("'\\u048'", toThrowWithReason: .invalidEscape)
   }
 
   func testEscape_Unicode_InvalidUnicode_MissingAllDigits() {
 
-    expect("'\\u'", toThrow: .invalidEscape)
+    expect("'\\u'", toThrowWithReason: .invalidEscape)
   }
 
   func testString_Empty() {
@@ -285,13 +285,19 @@ class ParsingTests: XCTestCase {
       ])
     )
   }
+
+  func testDetailedError() {
+
+    expect("false blah", toThrow: JSON.Error(byteOffset: 6, reason: .invalidSyntax))
+    expect("0xbadf00d", toThrow: JSON.Error(byteOffset: 1, reason: .invalidNumber))
+  }
 }
 
 #if os(Linux)
   extension ParsingTests {
     static var allTests : [(String, (ParsingTests) -> () throws -> Void)] {
       return [
-        ("testPrepareForReading_FailOnEmpty", testPrepareForReading_FailOnEmpty),
+        ("test_FailOnEmpty", testPrepareForReading_FailOnEmpty),
         ("testExtraTokensThrow", testExtraTokensThrow),
         ("testNullParses", testNullParses),
         ("testNullThrowsOnMismatch", testNullThrowsOnMismatch),
@@ -340,6 +346,7 @@ class ParsingTests: XCTestCase {
         ("testString_SpecialCharacter_EmojiComplex", testString_SpecialCharacter_EmojiComplex),
         ("testObject_Empty", testObject_Empty),
         ("testObject_Example1", testObject_Example1),
+        ("testDetailedError", testDetailedError),
       ]
     }
   }

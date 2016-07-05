@@ -10,20 +10,27 @@ public struct GenericJsonParser {
     public static let allowFragments = Option(rawValue: 0b0010)
   }
 
-  public enum Error: ErrorProtocol {
+  public struct Error: ErrorProtocol {
 
-    case endOfStream
-    case emptyStream
-    case trailingComma
-    case expectedComma
-    case expectedColon
-    case invalidEscape
-    case invalidSyntax
-    case invalidNumber
-    case numberOverflow
-    case invalidLiteral
-    case invalidUnicode
-    case fragmentedJson
+    public var byteOffset: Int
+
+    public var reason: Reason
+
+    public enum Reason: ErrorProtocol {
+
+      case endOfStream
+      case emptyStream
+      case trailingComma
+      case expectedComma
+      case expectedColon
+      case invalidEscape
+      case invalidSyntax
+      case invalidNumber
+      case numberOverflow
+      case invalidLiteral
+      case invalidUnicode
+      case fragmentedJson
+    }
   }
 
   public enum Number {
@@ -31,6 +38,12 @@ public struct GenericJsonParser {
     case double(Double)
     case integer(Int64)
   }
+}
+
+extension GenericJsonParser.Error: Equatable {}
+
+public func == (lhs: GenericJsonParser.Error, rhs: GenericJsonParser.Error) -> Bool {
+  return lhs.byteOffset == rhs.byteOffset && lhs.reason == rhs.reason
 }
 
 extension UTF8.CodeUnit {
@@ -74,26 +87,37 @@ extension GenericJsonParser {
     onNumber: (Number) -> T
   ) throws -> T  {
 
-    guard data.count > 0 else { throw Error.emptyStream }
+    guard data.count > 0 else { throw Error(byteOffset: 0, reason: .emptyStream) }
 
     return try data.withUnsafeMutableBufferPointer {
 
+
       var parser = Core(buffer: $0, options: options, onObject, onArray, onNull, onBool, onString, onNumber)
-      parser.skipWhitespace()
 
-      let (rootValue, wasTopLevel) = try parser.parseValue()
+      do {
 
-      if !wasTopLevel && !options.contains(.allowFragments) {
-        throw Error.fragmentedJson
+        parser.skipWhitespace()
+
+        let (rootValue, wasTopLevel) = try parser.parseValue()
+
+        if !wasTopLevel && !options.contains(.allowFragments) {
+          throw Error.Reason.fragmentedJson
+        }
+
+        parser.skipWhitespace()
+
+        guard parser.pointer == parser.bufferPointer.endAddress else {
+          throw Error.Reason.invalidSyntax
+        }
+
+        return rootValue
+
+      } catch let error as Error.Reason {
+
+        guard let baseAddress = parser.bufferPointer.baseAddress else { throw error }
+
+        throw Error(byteOffset: baseAddress.distance(to: parser.pointer), reason: error)
       }
-
-      parser.skipWhitespace()
-
-      guard parser.pointer == parser.bufferPointer.endAddress else {
-        throw Error.invalidSyntax
-      }
-
-      return rootValue
     }
   }
 }
@@ -197,14 +221,14 @@ extension Core {
       return (onNull(), wasTopLevel: false)
 
     default:
-      throw Error.invalidSyntax
+      throw Error.Reason.invalidSyntax
     }
   }
 
   mutating func assertFollowedBy(_ chars: [UTF8.CodeUnit]) throws {
 
     for scalar in chars {
-      guard try scalar == pop() else { throw Error.invalidLiteral }
+      guard try scalar == pop() else { throw Error.Reason.invalidLiteral }
     }
   }
 
@@ -254,7 +278,7 @@ extension Core {
         return tempDict
 
       default:
-        throw Error.invalidSyntax
+        throw Error.Reason.invalidSyntax
       }
     } while true
   }
@@ -279,8 +303,8 @@ extension Core {
       switch peek() {
       case comma:
 
-        guard !wasComma else { throw Error.invalidSyntax }
-        guard tempArray.count > 0 else { throw Error.invalidSyntax }
+        guard !wasComma else { throw Error.Reason.invalidSyntax }
+        guard tempArray.count > 0 else { throw Error.Reason.invalidSyntax }
 
         wasComma = true
         unsafePop()
@@ -288,7 +312,7 @@ extension Core {
 
       case arrayClose:
 
-        guard !wasComma else { throw Error.trailingComma }
+        guard !wasComma else { throw Error.Reason.trailingComma }
 
         _ = try pop()
         return tempArray
@@ -296,7 +320,7 @@ extension Core {
       default:
 
         if tempArray.count > 0 && !wasComma {
-          throw Error.expectedComma
+          throw Error.Reason.expectedComma
         }
 
         let value = try parseValue()
@@ -327,7 +351,7 @@ extension Core {
       return true
     }()
 
-    guard numbers ~= peek() else { throw Error.invalidNumber }
+    guard numbers ~= peek() else { throw Error.Reason.invalidNumber }
 
     var significand: UInt64 = 0
     var mantisa: UInt64 = 0
@@ -342,34 +366,34 @@ extension Core {
       case numbers where !seenDecimal && !seenExponent:
 
         (significand, didOverflow) = UInt64.multiplyWithOverflow(significand, 10)
-        guard !didOverflow else { throw Error.numberOverflow }
+        guard !didOverflow else { throw Error.Reason.numberOverflow }
 
         (significand, didOverflow) = UInt64.addWithOverflow(significand, UInt64(unsafePop() - zero))
-        guard !didOverflow else { throw Error.numberOverflow }
+        guard !didOverflow else { throw Error.Reason.numberOverflow }
 
       case numbers where seenDecimal && !seenExponent:
 
         divisor *= 10
 
         (mantisa, didOverflow) = UInt64.multiplyWithOverflow(mantisa, 10)
-        guard !didOverflow else { throw Error.numberOverflow }
+        guard !didOverflow else { throw Error.Reason.numberOverflow }
 
         (mantisa, didOverflow) = UInt64.addWithOverflow(mantisa, UInt64(unsafePop() - zero))
-        guard !didOverflow else { throw Error.numberOverflow }
+        guard !didOverflow else { throw Error.Reason.numberOverflow }
 
       case numbers where seenExponent:
 
         (exponent, didOverflow) = UInt64.multiplyWithOverflow(exponent, 10)
-        guard !didOverflow else { throw Error.numberOverflow }
+        guard !didOverflow else { throw Error.Reason.numberOverflow }
 
         (exponent, didOverflow) = UInt64.addWithOverflow(exponent, UInt64(unsafePop() - zero))
-        guard !didOverflow else { throw Error.numberOverflow }
+        guard !didOverflow else { throw Error.Reason.numberOverflow }
 
       case decimal where !seenExponent && !seenDecimal:
 
         unsafePop()
         seenDecimal = true
-        guard numbers ~= peek() else { throw Error.invalidNumber }
+        guard numbers ~= peek() else { throw Error.Reason.invalidNumber }
 
       case E where !seenExponent,
            e where !seenExponent:
@@ -386,7 +410,7 @@ extension Core {
           unsafePop()
         }
 
-        guard numbers ~= peek() else { throw Error.invalidNumber }
+        guard numbers ~= peek() else { throw Error.Reason.invalidNumber }
 
       default:
 
@@ -400,7 +424,7 @@ extension Core {
           pointer.pointee == tab ||
           pointer.pointee == cr ||
           pointer == bufferPointer.endAddress
-        else { throw Error.invalidNumber }
+        else { throw Error.Reason.invalidNumber }
 
         return try constructNumber(
           significand: significand,
@@ -443,7 +467,7 @@ extension Core {
         return .integer(-Int64(significand))
 
       default:
-        throw Error.invalidNumber
+        throw Error.Reason.invalidNumber
       }
     }
   }
@@ -504,7 +528,7 @@ extension Core {
           stringBuffer.append(contentsOf: bytes)
 
         default:
-          throw Error.invalidEscape
+          throw Error.Reason.invalidEscape
         }
 
         escaped = false
@@ -533,7 +557,7 @@ extension Core {
       case alphaNumericUpper:
         codeUnit += UInt16(c - 55)
       default:
-        throw Error.invalidEscape
+        throw Error.Reason.invalidEscape
       }
     }
 
@@ -550,7 +574,7 @@ extension Core {
 
     if UTF16.isLeadSurrogate(codeUnit) {
 
-      guard try pop() == backslash && pop() == u else { throw Error.invalidUnicode }
+      guard try pop() == backslash && pop() == u else { throw Error.Reason.invalidUnicode }
       let trailingSurrogate = try parseUnicodeEscape()
       buffer.append(trailingSurrogate)
     }
@@ -564,14 +588,14 @@ extension Core {
       return scalar
 
     case .emptyInput, .error:
-      throw Error.invalidUnicode
+      throw Error.Reason.invalidUnicode
     }
   }
 
   mutating func skipColon() throws {
     skipWhitespace()
     guard case colon = try pop() else {
-      throw Error.expectedColon
+      throw Error.Reason.expectedColon
     }
     skipWhitespace()
   }
@@ -586,7 +610,7 @@ extension Core {
 
   mutating func pop() throws -> UTF8.CodeUnit {
 
-    guard pointer != bufferPointer.endAddress else { throw Error.endOfStream }
+    guard pointer != bufferPointer.endAddress else { throw Error.Reason.endOfStream }
     defer { pointer = pointer.advanced(by: 1) }
     return pointer.pointee
   }
