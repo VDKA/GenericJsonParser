@@ -57,9 +57,9 @@ extension UTF8.CodeUnit {
   }
 }
 
-extension UnsafeMutableBufferPointer {
+extension UnsafeBufferPointer {
 
-  var endAddress: UnsafeMutablePointer<Element>? {
+  var endAddress: UnsafePointer<Element>? {
 
     return baseAddress?.advanced(by: endIndex)
   }
@@ -89,7 +89,7 @@ extension GenericJsonParser {
 
     guard data.count > 0 else { throw Error(byteOffset: 0, reason: .emptyStream) }
 
-    return try data.withUnsafeMutableBufferPointer {
+    return try data.withUnsafeBufferPointer {
 
 
       var parser = Core(buffer: $0, options: options, onObject, onArray, onNull, onBool, onString, onNumber)
@@ -133,8 +133,8 @@ internal struct Core<T> {
 
   let skipNull: Bool
 
-  var pointer: UnsafeMutablePointer<UTF8.CodeUnit>
-  var bufferPointer: UnsafeMutableBufferPointer<UTF8.CodeUnit>
+  var pointer: UnsafePointer<UTF8.CodeUnit>
+  var bufferPointer: UnsafeBufferPointer<UTF8.CodeUnit>
 
   var stringBuffer: [UTF8.CodeUnit] = []
 
@@ -146,7 +146,7 @@ internal struct Core<T> {
   let onNumber: (Number) -> T
 
   init(
-      buffer: UnsafeMutableBufferPointer<UTF8.CodeUnit>,
+      buffer: UnsafeBufferPointer<UTF8.CodeUnit>,
       options: Option,
     _ onObject: ([(String, T)]) -> T,
     _ onArray: ([T]) -> T,
@@ -244,8 +244,6 @@ extension Core {
       return []
     }
 
-
-    // FIXME (vdka): Currently skips comma's regardless. ie: "{'harry': 'potter', , null}" & "{'harry': 'potter' null}" would incorrectly parse
     var tempDict: [(String, T)] = []
     tempDict.reserveCapacity(6)
 
@@ -290,6 +288,11 @@ extension Core {
 
     skipWhitespace()
 
+    guard peek() != arrayClose else {
+      unsafePop()
+      return []
+    }
+
     var tempArray: [T] = []
     tempArray.reserveCapacity(6)
 
@@ -298,13 +301,10 @@ extension Core {
 
     repeat {
 
-      // [1, 2, [1]]
-      // TODO (vdka): no trailing comma's expect next value or throw .trailingComma
       switch peek() {
       case comma:
 
         guard !wasComma else { throw Error.Reason.invalidSyntax }
-        guard tempArray.count > 0 else { throw Error.Reason.invalidSyntax }
 
         wasComma = true
         unsafePop()
@@ -314,7 +314,7 @@ extension Core {
 
         guard !wasComma else { throw Error.Reason.trailingComma }
 
-        _ = try pop()
+        unsafePop()
         return tempArray
 
       default:
